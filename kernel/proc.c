@@ -555,10 +555,13 @@ sleep(void *chan, struct spinlock *lk)
   release(lk);
 
   // Go to sleep.
+  p->sleep_count++;
   p->chan = chan;
   p->state = SLEEPING;
 
+  uint sleep_start = ticks; // best-effort unsynchronized read
   sched();
+  p->sleep_ticks += ticks - sleep_start;
 
   // Tidy up.
   p->chan = 0;

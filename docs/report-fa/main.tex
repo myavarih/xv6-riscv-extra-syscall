@@ -1,0 +1,277 @@
+\documentclass[code]{amznotes-fa}
+
+\title{گزارش پیاده‌سازی فراخوان سیستمی \lr{getsleepinfo} در \lr{xv6-riscv}}
+\author{محمد یاوری}
+\date{تیر ۱۴۰۵}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+% ============================================================
+\chapter{مقدمه}
+
+\lr{xv6} یک سیستم‌عامل آموزشی ساده است که در \lr{MIT} توسعه یافته و بر روی معماری \lr{RISC-V} اجرا می‌شود. هسته این سیستم‌عامل هیچ مکانیزمی برای پرس‌وجو از میزان و تعداد دفعات \latincode{sleep} فرایندها ارائه نمی‌دهد.
+
+در این پروژه، فراخوان سیستمی \latincode{getsleepinfo} به هسته \lr{xv6} اضافه شده است. این فراخوان اطلاعات خواب (زمان و تعداد) را برای یک فرایند مشخص یا همه فرایندهای سیستم برمی‌گرداند.
+
+\begin{dfnbox}{فراخوان سیستمی}{syscall}
+    \dfntxt{فراخوان سیستمی} رابطی است که فرایندهای فضای کاربر از طریق آن به خدمات هسته دسترسی می‌یابند. در معماری \lr{RISC-V}، این مکانیزم با دستورالعمل \latincode{ecall} فعال می‌شود.
+\end{dfnbox}
+
+% ============================================================
+\chapter{ساختار \lr{sleepinfo}}
+
+\section{تعریف ساختار}
+
+ساختار \latincode{struct sleepinfo} در فایل \latincode{kernel/proc.h} تعریف شده است:
+
+\begin{codebox}{تعریف \lr{struct sleepinfo}}{sleepinfo-struct}
+    \begin{amzcode}{c}
+struct sleepinfo {
+  int    pid;          /* process ID (0 for unused slots) */
+  uint64 sleep_ticks;  /* total timer ticks in SLEEPING state */
+  uint64 sleep_count;  /* number of times sleep() was called  */
+};
+    \end{amzcode}
+\end{codebox}
+
+\section{فیلدهای ساختار}
+
+\subsection{\lr{pid} — شناسه فرایند}
+
+شناسه عددی فرایند. در پرس‌وجوی همه فرایندها (\latincode{who == -1})، ورودی‌های متناظر با اسلات‌های آزاد جدول فرایندها مقدار صفر دارند.
+
+\subsection{\lr{sleep\_ticks} — مجموع تیک‌های خواب}
+
+مجموع تیک‌های تایمر است که فرایند در حالت \latincode{SLEEPING} گذرانده است. این مقدار مستقیماً در تابع \latincode{sleep()} در فایل \latincode{kernel/proc.c} اندازه‌گیری می‌شود: درست پیش از \latincode{sched()} مقدار \latincode{ticks} خوانده می‌شود و بلافاصله پس از بازگشت از \latincode{sched()} (یعنی پس از بیدار شدن فرایند) مابه‌التفاوت به این شمارنده افزوده می‌شود.
+
+\subsection{\lr{sleep\_count} — تعداد دفعات خواب}
+
+تعداد دفعاتی که \latincode{sleep()} توسط این فرایند فراخوانی شده است. هر بار که فرایند به صورت داوطلبانه \lr{CPU} را رها کند — مثلاً برای انتظار \lr{I/O} دیسک، لوله، یا فراخوان \latincode{pause()} — این شمارنده یک واحد اضافه می‌شود.
+
+% ============================================================
+\chapter{پیاده‌سازی}
+
+\section{فایل‌های تغییریافته}
+
+\begin{table}[h]
+\centering
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+\textbf{فایل} & \textbf{تغییر} \\
+\midrule
+\lr{\texttt{kernel/proc.h}} & تعریف \latincode{struct sleepinfo} و افزودن \latincode{sleep\_ticks} و \latincode{sleep\_count} به \latincode{struct proc} \\
+\lr{\texttt{kernel/proc.c}} & اندازه‌گیری زمان خواب و شمارش تعداد آن در \latincode{sleep()} \\
+\lr{\texttt{kernel/syscall.h}} & تعریف \latincode{SYS\_getsleepinfo = 22} \\
+\lr{\texttt{kernel/syscall.c}} & ثبت \latincode{sys\_getsleepinfo} در جدول توزیع فراخوان‌ها \\
+\lr{\texttt{kernel/sysproc.c}} & پیاده‌سازی \latincode{sys\_getsleepinfo()} \\
+\lr{\texttt{user/user.h}} & اعلان \latincode{struct sleepinfo} و تابع \latincode{getsleepinfo()} \\
+\lr{\texttt{user/usys.pl}} & ثبت \latincode{entry("getsleepinfo")} \\
+\lr{\texttt{user/sleepinfo.c}} & برنامه آزمون فضای کاربر \\
+\bottomrule
+\end{tabularx}
+\caption{فایل‌های تغییریافته در پیاده‌سازی \lr{getsleepinfo}}
+\end{table}
+
+\section{ابزار اندازه‌گیری خواب در \lr{kernel/proc.c}}
+
+تابع \latincode{sleep()} در فایل \latincode{kernel/proc.c} برای ردیابی آمار خواب دستکاری شده است:
+
+\begin{codebox}{اندازه‌گیری خواب در \lr{sleep()}}{sleep-instrumentation}
+    \begin{amzcode}{c}
+// Go to sleep.
+p->sleep_count++;
+p->chan = chan;
+p->state = SLEEPING;
+
+uint sleep_start = ticks; // best-effort unsynchronized read
+sched();
+p->sleep_ticks += ticks - sleep_start;
+    \end{amzcode}
+\end{codebox}
+
+\begin{notebox}
+متغیر \latincode{ticks} بدون قفل‌گذاری خوانده می‌شود. این همان رویکردی است که \lr{xv6} برای سایر شمارنده‌های آماری فرایند به کار می‌برد. خواندن همروند از \latincode{ticks} در معماری \lr{RISC-V} برای مقادیر ۳۲ بیتی اتمیک است و در عمل خطای ناچیزی ایجاد می‌کند.
+\end{notebox}
+
+\section{پیاده‌سازی هسته: \lr{sys\_getsleepinfo}}
+
+تابع \latincode{sys\_getsleepinfo()} در فایل \latincode{kernel/sysproc.c} پیاده‌سازی شده است. آرگومان اول (\latincode{who}) حالت کار را مشخص می‌کند:
+
+\begin{codebox}{پیاده‌سازی \lr{sys\_getsleepinfo}}{sysproc-impl}
+    \begin{amzcode}{c}
+uint64
+sys_getsleepinfo(void)
+{
+  int who;
+  uint64 addr;
+  argint(0, &who);
+  argaddr(1, &addr);
+
+  struct proc *p = myproc();
+
+  if (who == -1) {
+    struct sleepinfo buf[NPROC];
+    for (int i = 0; i < NPROC; i++) {
+      struct proc *pp = &proc[i];
+      acquire(&pp->lock);
+      buf[i].pid         = (pp->state != UNUSED) ? pp->pid : 0;
+      buf[i].sleep_ticks = pp->sleep_ticks;
+      buf[i].sleep_count = pp->sleep_count;
+      release(&pp->lock);
+    }
+    if (copyout(p->pagetable, addr, (char *)buf, sizeof(buf)) < 0)
+      return -1;
+    return 0;
+  }
+
+  struct proc *target = 0;
+  if (who == 0) {
+    target = p;
+  } else {
+    for (struct proc *pp = proc; pp < &proc[NPROC]; pp++) {
+      acquire(&pp->lock);
+      if (pp->state != UNUSED && pp->pid == who) {
+        target = pp;
+        release(&pp->lock);
+        break;
+      }
+      release(&pp->lock);
+    }
+    if (target == 0)
+      return -1;
+  }
+
+  struct sleepinfo si;
+  acquire(&target->lock);
+  si.pid         = target->pid;
+  si.sleep_ticks = target->sleep_ticks;
+  si.sleep_count = target->sleep_count;
+  release(&target->lock);
+
+  if (copyout(p->pagetable, addr, (char *)&si, sizeof(si)) < 0)
+    return -1;
+  return 0;
+}
+    \end{amzcode}
+\end{codebox}
+
+\section{شمارنده‌های \lr{struct proc}}
+
+دو فیلد جدید به \latincode{struct proc} در \latincode{kernel/proc.h} اضافه شده‌اند:
+
+\begin{codebox}{فیلدهای جدید در \lr{struct proc}}{proc-fields}
+    \begin{amzcode}{c}
+uint64 sleep_ticks; // total ticks spent in SLEEPING state
+uint64 sleep_count; // number of times sleep() was called
+    \end{amzcode}
+\end{codebox}
+
+این فیلدها در بخش خصوصی \latincode{struct proc} (که نیازی به نگه‌داشتن \latincode{p->lock} ندارند) قرار گرفته‌اند، چون فقط توسط خود فرایند نوشته می‌شوند (از داخل \latincode{sleep()} که \latincode{p->lock} را نگه داشته است).
+
+% ============================================================
+\chapter{رابط فضای کاربر}
+
+\section{امضای فراخوان}
+
+\begin{codebox}{امضای \lr{getsleepinfo}}{signature}
+    \begin{amzcode}{c}
+int getsleepinfo(int who, struct sleepinfo *buf);
+    \end{amzcode}
+\end{codebox}
+
+\begin{table}[h]
+\centering
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+\textbf{مقدار \lr{who}} & \textbf{معنا} \\
+\midrule
+\latincode{0}  & فرایند جاری — یک ورودی \latincode{sleepinfo} در \latincode{buf} \\
+\latincode{> 0} & فرایند با \latincode{pid == who} — یک ورودی در \latincode{buf}، یا \latincode{-1} اگر پیدا نشد \\
+\latincode{-1} & همه فرایندها — \latincode{NPROC} ورودی در \latincode{buf} (اسلات‌های آزاد: \latincode{pid = 0}) \\
+\bottomrule
+\end{tabularx}
+\caption{مقادیر آرگومان \lr{who}}
+\end{table}
+
+\section{برنامه \lr{sleepinfo}}
+
+برنامه \latincode{sleepinfo} (فایل \latincode{user/sleepinfo.c}) موارد زیر را آزمون می‌کند:
+
+\begin{codebox}{نمونه استفاده از \lr{getsleepinfo}}{usage-example}
+    \begin{amzcode}{c}
+/* current process */
+struct sleepinfo si;
+getsleepinfo(0, &si);
+
+/* after pause(5) */
+pause(5);
+getsleepinfo(0, &si);
+
+/* by explicit pid */
+getsleepinfo(getpid(), &si);
+
+/* invalid pid — should return -1 */
+getsleepinfo(99999, &si);
+
+/* all processes */
+struct sleepinfo all[NPROC];
+getsleepinfo(-1, all);
+    \end{amzcode}
+\end{codebox}
+
+% ============================================================
+\chapter{نتایج آزمون}
+
+\section{محیط آزمون}
+
+آزمون‌ها در \lr{QEMU} با تنظیم \latincode{CPUS=1} انجام می‌شوند. دستور \latincode{make qemu CPUS=1} برای راه‌اندازی استفاده می‌شود.
+
+\section{خروجی مورد انتظار}
+
+پس از راه‌اندازی \lr{xv6} و اجرای \latincode{sleepinfo}:
+
+\begin{codebox}{خروجی برنامه \lr{sleepinfo}}{expected-output}
+    \begin{amzcode}{text}
+$ sleepinfo
+self (before sleep): pid=3  sleep_ticks=2   sleep_count=1
+self (after  sleep): pid=3  sleep_ticks=7   sleep_count=2
+self (by pid)       : pid=3  sleep_ticks=7   sleep_count=2
+getsleepinfo(99999): correctly returned -1
+
+all processes:
+  pid=1  sleep_ticks=...  sleep_count=...
+  pid=2  sleep_ticks=...  sleep_count=...
+  pid=3  sleep_ticks=...  sleep_count=...
+    \end{amzcode}
+\end{codebox}
+
+\begin{exbox}{تحلیل نتایج}{result-analysis}
+    \begin{itemize}[noitemsep]
+        \item \latincode{sleep\_ticks}: از حدود ۲ به ۷ رسید — فراخوان \latincode{pause(5)} باعث شد فرایند ۵ تیک بیشتر بخوابد.
+        \item \latincode{sleep\_count}: از ۱ به ۲ رسید — قبل از \latincode{pause}، یک بار \latincode{sleep} (برای انتظار ورودی پوسته)؛ بعد از آن دو بار.
+        \item پرس‌وجوی با \lr{PID} صریح همان مقادیر را برمی‌گرداند.
+        \item پرس‌وجوی \lr{PID} نامعتبر (\latincode{99999}) صحیح مقدار \latincode{-1} برمی‌گرداند.
+        \item پرس‌وجوی همه فرایندها (\latincode{who == -1}) فرایندهای \latincode{init}، \latincode{sh}، و \latincode{sleepinfo} را نشان می‌دهد.
+    \end{itemize}
+\end{exbox}
+
+% ============================================================
+\chapter{محدودیت‌ها}
+
+\begin{notebox}
+\textbf{خواندن \latincode{ticks} بدون قفل.} متغیر \latincode{ticks} بدون \latincode{tickslock} خوانده می‌شود. اگر \latincode{tickslock} درون \latincode{sleep()} در حالی که \latincode{p->lock} نگه داشته می‌شود گرفته شود، همه تابع‌هایی که \latincode{tickslock} را نگه می‌دارند و سپس \latincode{sleep()} را فراخوانی می‌کنند (مثل \latincode{sys\_pause}) باید از نظر ترتیب قفل‌گذاری بررسی شوند. خواندن غیرهمگام‌شده بهترین رویکرد عملی است.
+\end{notebox}
+
+\begin{notebox}
+\textbf{خطای اندازه‌گیری در چند پردازنده.} در حالت \latincode{CPUS > 1}، متغیر \latincode{ticks} فقط توسط \lr{CPU} شماره صفر افزایش می‌یابد (\latincode{clockintr} در \latincode{kernel/trap.c}). پردازنده‌های دیگر همان مقدار را می‌خوانند اما این مقدار ممکن است کمی کهنه باشد. برای \lr{xv6} با \latincode{CPUS=3}، این خطا معمولاً کمتر از یک تیک است.
+\end{notebox}
+
+\begin{notebox}
+\textbf{تفاوت با \lr{sleep} هسته و \lr{sleeplock}.} این آمار فقط \latincode{sleep()} کرنل را ردیابی می‌کند که حالت فرایند را به \latincode{SLEEPING} تغییر می‌دهد. \latincode{sleeplock} نیز از همان مکانیزم استفاده می‌کند و بنابراین در \latincode{sleep\_count} شمرده می‌شود.
+\end{notebox}
+
+\end{document}

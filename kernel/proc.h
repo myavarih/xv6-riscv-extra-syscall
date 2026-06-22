@@ -78,6 +78,13 @@ struct trapframe {
 
 enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
+// Sleep statistics returned by getsleepinfo().
+struct sleepinfo {
+  int    pid;          // process ID (0 for unused slots)
+  uint64 sleep_ticks;  // total timer ticks spent in SLEEPING state
+  uint64 sleep_count;  // number of times sleep() was called
+};
+
 // Per-process state
 struct proc {
   struct spinlock lock;
@@ -101,4 +108,8 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+
+  // Sleep statistics (best-effort; unsynchronized reads OK for stats).
+  uint64 sleep_ticks; // total ticks spent in SLEEPING state
+  uint64 sleep_count; // number of times sleep() was called
 };
