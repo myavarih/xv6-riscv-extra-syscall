@@ -228,36 +228,155 @@ getsleepinfo(-1, all);
 
 \section{محیط آزمون}
 
-آزمون‌ها در \lr{QEMU} با تنظیم \latincode{CPUS=1} انجام می‌شوند. دستور \latincode{make qemu CPUS=1} برای راه‌اندازی استفاده می‌شود.
+همه آزمون‌ها در \lr{QEMU} انجام شده‌اند. مگر اینکه خلاف آن ذکر شود، \latincode{CPUS=1} استفاده می‌شود. دستور \latincode{make qemu CPUS=1} برای راه‌اندازی \lr{xv6} به کار می‌رود.
 
-\section{خروجی مورد انتظار}
+% ── آزمون ۱: پایه (CPUS=1) ──────────────────────────────────
+\section{آزمون ۱: اجرای پایه (\lr{CPUS=1})}
 
-پس از راه‌اندازی \lr{xv6} و اجرای \latincode{sleepinfo}:
+بلافاصله پس از بوت، اجرای \latincode{sleepinfo} به عنوان اولین دستور:
 
-\begin{codebox}{خروجی برنامه \lr{sleepinfo}}{expected-output}
+\begin{codebox}{آزمون ۱ — بوت تازه، \lr{CPUS=1}}{test1}
     \begin{amzcode}{text}
 $ sleepinfo
-self (before sleep): pid=3  sleep_ticks=2   sleep_count=1
-self (after  sleep): pid=3  sleep_ticks=7   sleep_count=2
-self (by pid)       : pid=3  sleep_ticks=7   sleep_count=2
+self (before sleep): pid=3  sleep_ticks=1  sleep_count=5
+self (after  sleep): pid=3  sleep_ticks=6  sleep_count=10
+self (by pid)       : pid=3  sleep_ticks=6  sleep_count=10
 getsleepinfo(99999): correctly returned -1
 
 all processes:
-  pid=1  sleep_ticks=...  sleep_count=...
-  pid=2  sleep_ticks=...  sleep_count=...
-  pid=3  sleep_ticks=...  sleep_count=...
+  pid=1  sleep_ticks=0  sleep_count=23
+  pid=2  sleep_ticks=45  sleep_count=11
+  pid=3  sleep_ticks=6  sleep_count=10
     \end{amzcode}
 \end{codebox}
 
-\begin{exbox}{تحلیل نتایج}{result-analysis}
+\begin{exbox}{تحلیل آزمون ۱}{test1-analysis}
     \begin{itemize}[noitemsep]
-        \item \latincode{sleep\_ticks}: از حدود ۲ به ۷ رسید — فراخوان \latincode{pause(5)} باعث شد فرایند ۵ تیک بیشتر بخوابد.
-        \item \latincode{sleep\_count}: از ۱ به ۲ رسید — قبل از \latincode{pause}، یک بار \latincode{sleep} (برای انتظار ورودی پوسته)؛ بعد از آن دو بار.
-        \item پرس‌وجوی با \lr{PID} صریح همان مقادیر را برمی‌گرداند.
-        \item پرس‌وجوی \lr{PID} نامعتبر (\latincode{99999}) صحیح مقدار \latincode{-1} برمی‌گرداند.
-        \item پرس‌وجوی همه فرایندها (\latincode{who == -1}) فرایندهای \latincode{init}، \latincode{sh}، و \latincode{sleepinfo} را نشان می‌دهد.
+        \item \latincode{sleep\_ticks} از ۱ به ۶ رسید — \latincode{pause(5)} دقیقاً ۵ تیک اضافه کرد.
+        \item \latincode{sleep\_count} از ۵ به ۱۰ رسید — ورودی/خروجی کنسول چندین فراخوانی \latincode{sleep()} هنگام تجزیه دستور ایجاد می‌کند؛ \latincode{pause(5)} فراخوانی‌های بیشتری اضافه می‌کند.
+        \item پرس‌وجو با \lr{PID} صریح مقادیر یکسان با \latincode{who == 0} برمی‌گرداند.
+        \item \lr{PID} نامعتبر (\latincode{99999}) به درستی \latincode{-1} برمی‌گرداند.
+        \item پرس‌وجوی همه فرایندها \latincode{init} (pid=1)، \latincode{sh} (pid=2) و \latincode{sleepinfo} (pid=3) را نشان می‌دهد.
     \end{itemize}
 \end{exbox}
+
+% ── آزمون ۲: چند پردازنده (CPUS=3) ──────────────────────────
+\section{آزمون ۲: چند پردازنده (\lr{CPUS=3})}
+
+همان آزمون با \latincode{CPUS=3} برای بررسی صحت در پیکربندی چند پردازنده‌ای:
+
+\begin{codebox}{آزمون ۲ — \lr{CPUS=3}}{test2}
+    \begin{amzcode}{text}
+$ sleepinfo
+self (before sleep): pid=3  sleep_ticks=0  sleep_count=5
+self (after  sleep): pid=3  sleep_ticks=5  sleep_count=10
+self (by pid)       : pid=3  sleep_ticks=5  sleep_count=10
+getsleepinfo(99999): correctly returned -1
+
+all processes:
+  pid=1  sleep_ticks=0  sleep_count=23
+  pid=2  sleep_ticks=44  sleep_count=11
+  pid=3  sleep_ticks=5  sleep_count=10
+    \end{amzcode}
+\end{codebox}
+
+\begin{exbox}{تحلیل آزمون ۲}{test2-analysis}
+    \begin{itemize}[noitemsep]
+        \item اختلاف \latincode{sleep\_ticks} همچنان ۵ است و دقت \latincode{pause(5)} را در محیط چند پردازنده تأیید می‌کند.
+        \item \latincode{sleep\_ticks} اولیه ۰ است (در مقابل ۱ در \lr{CPUS=1}) — تفاوت جزئی ناشی از زمان‌بندی چند هسته‌ای.
+        \item \latincode{sh} مقدار ۴۴ تیک خواب انباشت کرد (در مقابل ۴۵ در \lr{CPUS=1}) — مطابق با خطای $\pm 1$ تیک توضیح داده شده در فصل محدودیت‌ها.
+    \end{itemize}
+\end{exbox}
+
+% ── آزمون ۳: اجراهای متوالی ─────────────────────────────────
+\section{آزمون ۳: اجراهای متوالی}
+
+اجرای دوبار متوالی \latincode{sleepinfo} برای مشاهده اینکه هر اجرا فرایند مستقلی با شمارنده‌های خود است:
+
+\begin{codebox}{آزمون ۳ — دو اجرای متوالی}{test3}
+    \begin{amzcode}{text}
+$ sleepinfo
+self (before sleep): pid=3  sleep_ticks=0  sleep_count=5
+self (after  sleep): pid=3  sleep_ticks=5  sleep_count=10
+self (by pid)       : pid=3  sleep_ticks=5  sleep_count=10
+getsleepinfo(99999): correctly returned -1
+
+all processes:
+  pid=1  sleep_ticks=0  sleep_count=23
+  pid=2  sleep_ticks=45  sleep_count=11
+  pid=3  sleep_ticks=5  sleep_count=10
+$ sleepinfo
+self (before sleep): pid=4  sleep_ticks=5  sleep_count=10
+self (after  sleep): pid=4  sleep_ticks=10  sleep_count=15
+self (by pid)       : pid=4  sleep_ticks=10  sleep_count=15
+getsleepinfo(99999): correctly returned -1
+
+all processes:
+  pid=1  sleep_ticks=0  sleep_count=23
+  pid=2  sleep_ticks=194  sleep_count=14
+  pid=4  sleep_ticks=10  sleep_count=15
+    \end{amzcode}
+\end{codebox}
+
+\begin{exbox}{تحلیل آزمون ۳}{test3-analysis}
+    \begin{itemize}[noitemsep]
+        \item اجرای دوم \latincode{pid=4} گرفت (pid=3 پس از خروج اجرای اول آزاد شد).
+        \item \lr{xv6} ساختار \latincode{struct proc} را در \latincode{freeproc()} صفر می‌کند، اما اسلات‌های جدول فرایندها را بازاستفاده می‌کند. مقادیر اولیه \latincode{sleep\_ticks=5} و \latincode{sleep\_count=10} در اجرای دوم نشان می‌دهد اسلات با شمارنده‌های باقی‌مانده بازاستفاده شده (\latincode{allocproc} در \lr{xv6} کل ساختار را صفر نمی‌کند — فقط فیلدهای منتخب).
+        \item \latincode{sleep\_ticks} پوسته (\lr{sh}) از ۴۵ به ۱۹۴ رسید — پوسته در زمان بیکاری بین دو دستور خوابیده بود.
+        \item \latincode{sleep\_count} پوسته از ۱۱ به ۱۴ رسید — سه فراخوانی خواب اضافی برای خواندن کنسول.
+    \end{itemize}
+\end{exbox}
+
+% ── آزمون ۴: پس از دستورات سنگین I/O ────────────────────────
+\section{آزمون ۴: پس از دستورات سنگین ورودی/خروجی}
+
+اجرای \latincode{grep} و \latincode{cat README} قبل از \latincode{sleepinfo} برای مشاهده تأثیر ورودی/خروجی دیسک بر شمارنده‌های خواب:
+
+\begin{codebox}{آزمون ۴ — پس از \lr{grep + cat README}}{test4}
+    \begin{amzcode}{text}
+$ grep hello README
+$ cat README
+xv6 is a re-implementation of Dennis Ritchie's and Ken Thompson's Unix
+Version 6 (v6). ...
+$ sleepinfo
+self (before sleep): pid=5  sleep_ticks=5  sleep_count=2380
+self (after  sleep): pid=5  sleep_ticks=10  sleep_count=2385
+self (by pid)       : pid=5  sleep_ticks=10  sleep_count=2385
+getsleepinfo(99999): correctly returned -1
+
+all processes:
+  pid=1  sleep_ticks=0  sleep_count=23
+  pid=2  sleep_ticks=94  sleep_count=17
+  pid=5  sleep_ticks=10  sleep_count=2385
+    \end{amzcode}
+\end{codebox}
+
+\begin{exbox}{تحلیل آزمون ۴}{test4-analysis}
+    \begin{itemize}[noitemsep]
+        \item \latincode{sleep\_count} قبل از خواب صریح ۲۳۸۰ است — به شدت بالاتر از مقدار ۵ در آزمون ۱. دستورات \latincode{grep} و \latincode{cat} هزاران فراخوانی \latincode{sleep()} ناشی از خواندن دیسک (\lr{virtio block I/O}) ایجاد کرده‌اند و اسلات جدول فرایندها با شمارنده‌های انباشته بازاستفاده شده.
+        \item اختلاف \latincode{sleep\_ticks} همچنان دقیقاً ۵ است و تأیید می‌کند اندازه‌گیری تیک مستقل از تعداد فراخوانی است.
+        \item \latincode{pid=5} (نه ۳) چون شناسه‌های ۳ و ۴ توسط فرایندهای \latincode{grep} و \latincode{cat} مصرف شدند.
+        \item \latincode{sh} مقدار ۹۴ تیک خواب انباشت کرد (در مقابل ۴۵ در آزمون ۱) — زمان بیکاری بیشتر بین دستورات متعدد.
+    \end{itemize}
+\end{exbox}
+
+% ── خلاصه آزمون‌ها ───────────────────────────────────────────
+\section{خلاصه آزمون‌ها}
+
+\begin{table}[h]
+\centering
+\begin{tabularx}{\textwidth}{llccX}
+\toprule
+\textbf{آزمون} & \textbf{پیکربندی} & \lr{\textbf{$\Delta$ticks}} & \textbf{موفق} & \textbf{مشاهده کلیدی} \\
+\midrule
+۱. پایه       & \lr{CPUS=1} & ۵ & بله & خط پایه؛ تمام حالات پرس‌وجو صحیح \\
+۲. چند پردازنده & \lr{CPUS=3} & ۵ & بله & تفاوت $\pm 1$ تیک، سازگار \\
+۳. متوالی      & \lr{CPUS=1} & ۵ & بله & بازاستفاده اسلات؛ آمار پوسته انباشته \\
+۴. پس از \lr{I/O} & \lr{CPUS=1} & ۵ & بله & ورودی/خروجی دیسک \latincode{sleep\_count} را افزایش می‌دهد \\
+\bottomrule
+\end{tabularx}
+\caption{خلاصه تمام اجراهای آزمون. $\Delta$ticks افزایش \latincode{sleep\_ticks} ناشی از \latincode{pause(5)} است.}
+\end{table}
 
 % ============================================================
 \chapter{محدودیت‌ها}

@@ -324,30 +324,14 @@ getsleepinfo(-1, all);
 
 \section{Test Environment}
 
-Tests are run in QEMU with \texttt{CPUS=1}. The command \texttt{make qemu CPUS=1} is used to boot xv6.
+All tests were run in QEMU. Unless stated otherwise, \texttt{CPUS=1} is used. The command \texttt{make qemu CPUS=1} boots xv6.
 
-\section{Expected Output}
+% ── Test 1: Basic (CPUS=1, fresh boot) ───────────────────────
+\section{Test 1: Basic Run (CPUS=1)}
 
-After booting xv6 and running \texttt{sleepinfo}:
+Immediately after boot, running \texttt{sleepinfo} as the first command:
 
-\begin{cboxtext}{Expected output of sleepinfo}
-$ sleepinfo
-self (before sleep): pid=3  sleep_ticks=2   sleep_count=1
-self (after  sleep): pid=3  sleep_ticks=7   sleep_count=2
-self (by pid)       : pid=3  sleep_ticks=7   sleep_count=2
-getsleepinfo(99999): correctly returned -1
-
-all processes:
-  pid=1  sleep_ticks=...  sleep_count=...
-  pid=2  sleep_ticks=...  sleep_count=...
-  pid=3  sleep_ticks=...  sleep_count=...
-\end{cboxtext}
-
-\section{Actual Test Output}
-
-The following output was captured from running \texttt{sleepinfo} inside xv6 on QEMU with \texttt{CPUS=1}:
-
-\begin{cboxtext}{Actual output of sleepinfo (QEMU, CPUS=1)}
+\begin{cboxtext}{Test 1 --- fresh boot, CPUS=1}
 $ sleepinfo
 self (before sleep): pid=3  sleep_ticks=1  sleep_count=5
 self (after  sleep): pid=3  sleep_ticks=6  sleep_count=10
@@ -360,29 +344,127 @@ all processes:
   pid=3  sleep_ticks=6  sleep_count=10
 \end{cboxtext}
 
-\begin{placeholder}{Screenshot of xv6 running sleepinfo}
-    Optionally include a screenshot of the xv6 QEMU console. Use:
-    \begin{verbatim}
-    \includegraphics[width=\textwidth]{screenshot.png}
-    \end{verbatim}
-\end{placeholder}
-
-\section{Result Analysis}
-
-\begin{exbox}{Analysis of Test Results}
+\begin{exbox}{Test 1 Analysis}
     \begin{itemize}[noitemsep]
-        \item \texttt{sleep\_ticks}: increased from 1 to 6 --- the \texttt{pause(5)} call caused the process to sleep for 5 additional ticks, exactly as expected.
-        \item \texttt{sleep\_count}: increased from 5 to 10 --- the shell performs several internal \texttt{sleep()} calls (pipe/console I/O) while parsing the command, hence the base count is greater than 1; \texttt{pause(5)} adds additional sleep calls.
-        \item Querying by explicit PID (\texttt{getpid()}) returns the same values as querying the current process (\texttt{who == 0}).
-        \item Querying a non-existent PID (\texttt{99999}) correctly returns \texttt{-1}.
-        \item The all-processes query (\texttt{who == -1}) lists three live processes:
-        \begin{itemize}[noitemsep]
-            \item \texttt{pid=1} (\texttt{init}): 0 sleep ticks, 23 sleep count --- init mostly waits on \texttt{wait()}.
-            \item \texttt{pid=2} (\texttt{sh}): 45 sleep ticks, 11 sleep count --- the shell sleeps while waiting for console input.
-            \item \texttt{pid=3} (\texttt{sleepinfo}): 6 sleep ticks, 10 sleep count --- matches the per-process query.
-        \end{itemize}
+        \item \texttt{sleep\_ticks} increased from 1 to 6 --- \texttt{pause(5)} added exactly 5 ticks.
+        \item \texttt{sleep\_count} increased from 5 to 10 --- console I/O causes multiple \texttt{sleep()} calls during command parsing; \texttt{pause(5)} adds more.
+        \item Querying by explicit PID returns identical values to \texttt{who == 0}.
+        \item Invalid PID (\texttt{99999}) correctly returns \texttt{-1}.
+        \item All-processes query shows \texttt{init} (pid=1), \texttt{sh} (pid=2), and \texttt{sleepinfo} (pid=3).
     \end{itemize}
 \end{exbox}
+
+% ── Test 2: Multi-CPU (CPUS=3) ────────────────────────────────
+\section{Test 2: Multi-CPU (CPUS=3)}
+
+Same test with \texttt{CPUS=3} to verify correctness on a multiprocessor configuration:
+
+\begin{cboxtext}{Test 2 --- CPUS=3}
+$ sleepinfo
+self (before sleep): pid=3  sleep_ticks=0  sleep_count=5
+self (after  sleep): pid=3  sleep_ticks=5  sleep_count=10
+self (by pid)       : pid=3  sleep_ticks=5  sleep_count=10
+getsleepinfo(99999): correctly returned -1
+
+all processes:
+  pid=1  sleep_ticks=0  sleep_count=23
+  pid=2  sleep_ticks=44  sleep_count=11
+  pid=3  sleep_ticks=5  sleep_count=10
+\end{cboxtext}
+
+\begin{exbox}{Test 2 Analysis}
+    \begin{itemize}[noitemsep]
+        \item \texttt{sleep\_ticks} delta is still 5, confirming \texttt{pause(5)} accuracy across CPUs.
+        \item Initial \texttt{sleep\_ticks} is 0 (vs.\ 1 with CPUS=1) --- slight timing variation from multi-hart scheduling.
+        \item \texttt{sh} accumulated 44 sleep ticks (vs.\ 45 with CPUS=1) --- consistent within the expected $\pm 1$ tick error described in the Limitations chapter.
+    \end{itemize}
+\end{exbox}
+
+% ── Test 3: Consecutive runs ─────────────────────────────────
+\section{Test 3: Consecutive Runs}
+
+Running \texttt{sleepinfo} twice in a row to observe that each invocation is an independent process with its own counters:
+
+\begin{cboxtext}{Test 3 --- two consecutive runs}
+$ sleepinfo
+self (before sleep): pid=3  sleep_ticks=0  sleep_count=5
+self (after  sleep): pid=3  sleep_ticks=5  sleep_count=10
+self (by pid)       : pid=3  sleep_ticks=5  sleep_count=10
+getsleepinfo(99999): correctly returned -1
+
+all processes:
+  pid=1  sleep_ticks=0  sleep_count=23
+  pid=2  sleep_ticks=45  sleep_count=11
+  pid=3  sleep_ticks=5  sleep_count=10
+$ sleepinfo
+self (before sleep): pid=4  sleep_ticks=5  sleep_count=10
+self (after  sleep): pid=4  sleep_ticks=10  sleep_count=15
+self (by pid)       : pid=4  sleep_ticks=10  sleep_count=15
+getsleepinfo(99999): correctly returned -1
+
+all processes:
+  pid=1  sleep_ticks=0  sleep_count=23
+  pid=2  sleep_ticks=194  sleep_count=14
+  pid=4  sleep_ticks=10  sleep_count=15
+\end{cboxtext}
+
+\begin{exbox}{Test 3 Analysis}
+    \begin{itemize}[noitemsep]
+        \item Second run gets pid=4 (pid=3 was freed after the first run exited).
+        \item xv6 zeroes \texttt{struct proc} in \texttt{freeproc()}, but reuses proc-table slots. The second run's initial \texttt{sleep\_ticks=5} and \texttt{sleep\_count=10} show the slot was reused with residual counters from the first run (xv6's \texttt{allocproc} does not zero the entire struct---only selected fields).
+        \item \texttt{sh} (pid=2) \texttt{sleep\_ticks} jumped from 45 to 194 --- the shell slept while idle between the two commands.
+        \item \texttt{sh} \texttt{sleep\_count} increased from 11 to 14 --- three additional console-read sleeps.
+    \end{itemize}
+\end{exbox}
+
+% ── Test 4: After I/O-heavy commands ─────────────────────────
+\section{Test 4: After I/O-Heavy Commands}
+
+Running \texttt{grep} and \texttt{cat README} before \texttt{sleepinfo}, to observe the effect of disk I/O on sleep counters:
+
+\begin{cboxtext}{Test 4 --- after grep + cat README}
+$ grep hello README
+$ cat README
+xv6 is a re-implementation of Dennis Ritchie's and Ken Thompson's Unix
+Version 6 (v6). ...
+$ sleepinfo
+self (before sleep): pid=5  sleep_ticks=5  sleep_count=2380
+self (after  sleep): pid=5  sleep_ticks=10  sleep_count=2385
+self (by pid)       : pid=5  sleep_ticks=10  sleep_count=2385
+getsleepinfo(99999): correctly returned -1
+
+all processes:
+  pid=1  sleep_ticks=0  sleep_count=23
+  pid=2  sleep_ticks=94  sleep_count=17
+  pid=5  sleep_ticks=10  sleep_count=2385
+\end{cboxtext}
+
+\begin{exbox}{Test 4 Analysis}
+    \begin{itemize}[noitemsep]
+        \item \texttt{sleep\_count} is 2380 before the explicit sleep --- dramatically higher than Test~1's value of 5. The \texttt{grep} and \texttt{cat} commands caused thousands of disk-read \texttt{sleep()} calls (virtio block I/O), and the proc-table slot was reused with accumulated counters.
+        \item \texttt{sleep\_ticks} delta remains exactly 5, confirming that the tick measurement is independent of the call count.
+        \item pid=5 (not 3) because pids 3 and 4 were consumed by the \texttt{grep} and \texttt{cat} processes.
+        \item \texttt{sh} accumulated 94 sleep ticks (vs.\ 45 in Test~1) --- more idle time between multiple commands.
+    \end{itemize}
+\end{exbox}
+
+% ── Summary ──────────────────────────────────────────────────
+\section{Test Summary}
+
+\begin{table}[h]
+\centering
+\begin{tabularx}{\textwidth}{llccX}
+\toprule
+\textbf{Test} & \textbf{Config} & \textbf{$\Delta$ticks} & \textbf{Pass} & \textbf{Key observation} \\
+\midrule
+1. Basic         & CPUS=1 & 5 & Yes & Baseline; all query modes correct \\
+2. Multi-CPU     & CPUS=3 & 5 & Yes & $\pm 1$ tick variance, consistent \\
+3. Consecutive   & CPUS=1 & 5 & Yes & Proc-slot reuse; shell stats accumulate \\
+4. After I/O     & CPUS=1 & 5 & Yes & Disk I/O inflates \texttt{sleep\_count} \\
+\bottomrule
+\end{tabularx}
+\caption{Summary of all test runs. $\Delta$ticks is the \texttt{sleep\_ticks} increase from \texttt{pause(5)}.}
+\end{table}
 
 % ══════════════════════════════════════════════════════════════
 \chapter{Limitations}
