@@ -1,0 +1,405 @@
+\documentclass[12pt]{report}
+
+% ── Packages ──────────────────────────────────────────────────
+\usepackage[margin=1in]{geometry}
+\usepackage[dvipsnames]{xcolor}
+\usepackage{hyperref}
+\usepackage{fancyhdr}
+\usepackage{lastpage}
+\usepackage{parskip}
+\usepackage{setspace}
+\usepackage[explicit]{titlesec}
+\usepackage[most]{tcolorbox}
+\usepackage{enumitem}
+\usepackage{tabularx}
+\usepackage{booktabs}
+\usepackage{minted}
+\tcbuselibrary{minted}
+
+% ── Colors ────────────────────────────────────────────────────
+\definecolor{chaptercolor}{HTML}{0984e3}
+\definecolor{dfncolor}{HTML}{0984e3}
+\definecolor{notecolor}{HTML}{d63031}
+\definecolor{codeboxcolor}{HTML}{2d3436}
+\definecolor{excolor}{HTML}{fdcb6e}
+
+% ── Hyperref ──────────────────────────────────────────────────
+\hypersetup{
+    colorlinks=true,
+    linkcolor=chaptercolor,
+    urlcolor=blue,
+}
+
+% ── Spacing ───────────────────────────────────────────────────
+\onehalfspacing
+\renewcommand{\arraystretch}{1.25}
+
+% ── Chapter styling ───────────────────────────────────────────
+\titleformat{\chapter}[display]
+  {\normalfont\huge\bfseries\color{chaptercolor}}
+  {\chaptertitlename\ \thechapter}{20pt}{\Huge #1}
+
+% ── Custom boxes ──────────────────────────────────────────────
+% Definition box
+\newtcolorbox{dfnbox}[1]{
+    enhanced, breakable,
+    colback=dfncolor!5!white,
+    colframe=dfncolor,
+    fonttitle=\bfseries,
+    title={Definition: #1},
+}
+
+% Note box
+\newtcolorbox{notebox}{
+    enhanced, breakable,
+    colback=notecolor!7!white,
+    colframe=white,
+    borderline west={4pt}{0pt}{notecolor},
+    sharp corners,
+    left=8pt,
+}
+
+% Example box
+\newtcolorbox{exbox}[1]{
+    enhanced, breakable,
+    colback=excolor!10!white,
+    colframe=excolor!80!black,
+    fonttitle=\bfseries,
+    title={#1},
+}
+
+% Code listing box
+\newtcblisting{cbox}[1]{
+    enhanced, breakable,
+    colback=codeboxcolor!3!white,
+    colframe=codeboxcolor!60!white,
+    fonttitle=\bfseries\ttfamily,
+    title={#1},
+    listing only,
+    minted language=c,
+    minted options={fontsize=\small, breaklines},
+}
+
+% Code listing box (text)
+\newtcblisting{cboxtext}[1]{
+    enhanced, breakable,
+    colback=codeboxcolor!3!white,
+    colframe=codeboxcolor!60!white,
+    fonttitle=\bfseries\ttfamily,
+    title={#1},
+    listing only,
+    minted language=text,
+    minted options={fontsize=\small, breaklines},
+}
+
+% Placeholder box for test results
+\newtcolorbox{placeholder}[1]{
+    enhanced, breakable,
+    colback=yellow!8!white,
+    colframe=orange!70!black,
+    fonttitle=\bfseries,
+    title={#1 \textnormal{\textit{(to be filled with actual test output)}}},
+}
+
+% ══════════════════════════════════════════════════════════════
+\title{%
+    Implementation Report:\\
+    \texttt{getsleepinfo} System Call in xv6-riscv%
+}
+\author{Mohammad Yavari}
+\date{June 2025}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+% ══════════════════════════════════════════════════════════════
+\chapter{Introduction}
+
+xv6 is a simple teaching operating system developed at MIT, targeting the RISC-V architecture. The kernel provides no mechanism to query how much time a process has spent sleeping or how many times it has called \texttt{sleep()}.
+
+This project adds the \texttt{getsleepinfo} system call to the xv6 kernel. The call returns sleep statistics---total ticks and call count---for a specified process or for every process in the system.
+
+\begin{dfnbox}{System Call}
+    A \textbf{system call} is the interface through which user-space processes access kernel services. On RISC-V, this mechanism is triggered by the \texttt{ecall} instruction.
+\end{dfnbox}
+
+% ══════════════════════════════════════════════════════════════
+\chapter{The \texttt{sleepinfo} Structure}
+
+\section{Structure Definition}
+
+The structure \texttt{struct sleepinfo} is defined in \texttt{kernel/proc.h}:
+
+\begin{cbox}{struct sleepinfo}
+struct sleepinfo {
+  int    pid;          /* process ID (0 for unused slots) */
+  uint64 sleep_ticks;  /* total timer ticks in SLEEPING state */
+  uint64 sleep_count;  /* number of times sleep() was called  */
+};
+\end{cbox}
+
+\section{Fields}
+
+\subsection{\texttt{pid} --- Process Identifier}
+
+The numeric process identifier. When querying all processes (\texttt{who~==~-1}), entries corresponding to unused process-table slots have a \texttt{pid} of zero.
+
+\subsection{\texttt{sleep\_ticks} --- Total Sleep Ticks}
+
+The cumulative number of timer ticks that the process has spent in the \texttt{SLEEPING} state. This value is measured directly inside the \texttt{sleep()} function in \texttt{kernel/proc.c}: immediately before \texttt{sched()} the current \texttt{ticks} value is recorded, and immediately after \texttt{sched()} returns (i.e., after the process wakes up) the difference is added to this counter.
+
+\subsection{\texttt{sleep\_count} --- Sleep Call Count}
+
+The number of times \texttt{sleep()} has been called by this process. Every time the process voluntarily relinquishes the CPU---for example, waiting on disk I/O, a pipe, or a \texttt{pause()} call---this counter is incremented by one.
+
+% ══════════════════════════════════════════════════════════════
+\chapter{Implementation}
+
+\section{Modified Files}
+
+\begin{table}[h]
+\centering
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+\textbf{File} & \textbf{Change} \\
+\midrule
+\texttt{kernel/proc.h}   & Define \texttt{struct sleepinfo}; add \texttt{sleep\_ticks} and \texttt{sleep\_count} to \texttt{struct proc} \\
+\texttt{kernel/proc.c}   & Instrument \texttt{sleep()} to measure sleep duration and count \\
+\texttt{kernel/syscall.h} & Define \texttt{SYS\_getsleepinfo = 22} \\
+\texttt{kernel/syscall.c} & Register \texttt{sys\_getsleepinfo} in the dispatch table \\
+\texttt{kernel/sysproc.c} & Implement \texttt{sys\_getsleepinfo()} \\
+\texttt{user/user.h}      & Declare \texttt{struct sleepinfo} and \texttt{getsleepinfo()} prototype \\
+\texttt{user/usys.pl}     & Add \texttt{entry("getsleepinfo")} \\
+\texttt{user/sleepinfo.c} & User-space test program \\
+\texttt{Makefile}          & Add \texttt{\$U/\_sleepinfo} to \texttt{UPROGS} \\
+\bottomrule
+\end{tabularx}
+\caption{Files modified for the \texttt{getsleepinfo} implementation.}
+\end{table}
+
+\section{Sleep Instrumentation in \texttt{kernel/proc.c}}
+
+The \texttt{sleep()} function in \texttt{kernel/proc.c} was modified to track sleep statistics:
+
+\begin{cbox}{Sleep instrumentation in sleep()}
+// Go to sleep.
+p->sleep_count++;
+p->chan = chan;
+p->state = SLEEPING;
+
+uint sleep_start = ticks; // best-effort unsynchronized read
+sched();
+p->sleep_ticks += ticks - sleep_start;
+\end{cbox}
+
+\begin{notebox}
+The \texttt{ticks} variable is read without holding \texttt{tickslock}. This is the same best-effort approach that xv6 uses for other per-process statistics. On RISC-V, 32-bit reads are atomic, so the concurrent read of \texttt{ticks} introduces negligible error in practice.
+\end{notebox}
+
+\section{Kernel Implementation: \texttt{sys\_getsleepinfo}}
+
+The function \texttt{sys\_getsleepinfo()} is implemented in \texttt{kernel/sysproc.c}. The first argument (\texttt{who}) selects the mode of operation:
+
+\begin{cbox}{sys\_getsleepinfo implementation}
+uint64
+sys_getsleepinfo(void)
+{
+  int who;
+  uint64 addr;
+  argint(0, &who);
+  argaddr(1, &addr);
+
+  struct proc *p = myproc();
+
+  if (who == -1) {
+    struct sleepinfo buf[NPROC];
+    for (int i = 0; i < NPROC; i++) {
+      struct proc *pp = &proc[i];
+      acquire(&pp->lock);
+      buf[i].pid         = (pp->state != UNUSED) ? pp->pid : 0;
+      buf[i].sleep_ticks = pp->sleep_ticks;
+      buf[i].sleep_count = pp->sleep_count;
+      release(&pp->lock);
+    }
+    if (copyout(p->pagetable, addr, (char *)buf, sizeof(buf)) < 0)
+      return -1;
+    return 0;
+  }
+
+  struct proc *target = 0;
+  if (who == 0) {
+    target = p;
+  } else {
+    for (struct proc *pp = proc; pp < &proc[NPROC]; pp++) {
+      acquire(&pp->lock);
+      if (pp->state != UNUSED && pp->pid == who) {
+        target = pp;
+        release(&pp->lock);
+        break;
+      }
+      release(&pp->lock);
+    }
+    if (target == 0)
+      return -1;
+  }
+
+  struct sleepinfo si;
+  acquire(&target->lock);
+  si.pid         = target->pid;
+  si.sleep_ticks = target->sleep_ticks;
+  si.sleep_count = target->sleep_count;
+  release(&target->lock);
+
+  if (copyout(p->pagetable, addr, (char *)&si, sizeof(si)) < 0)
+    return -1;
+  return 0;
+}
+\end{cbox}
+
+\section{New Fields in \texttt{struct proc}}
+
+Two new fields were added to \texttt{struct proc} in \texttt{kernel/proc.h}:
+
+\begin{cbox}{New fields in struct proc}
+uint64 sleep_ticks; // total ticks spent in SLEEPING state
+uint64 sleep_count; // number of times sleep() was called
+\end{cbox}
+
+These fields are placed in the private section of \texttt{struct proc} (where \texttt{p->lock} is not required for access), because they are only written by the process itself from within \texttt{sleep()}, which already holds \texttt{p->lock}.
+
+% ══════════════════════════════════════════════════════════════
+\chapter{User-Space Interface}
+
+\section{Call Signature}
+
+\begin{cbox}{getsleepinfo signature}
+int getsleepinfo(int who, struct sleepinfo *buf);
+\end{cbox}
+
+\begin{table}[h]
+\centering
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+\textbf{Value of \texttt{who}} & \textbf{Meaning} \\
+\midrule
+\texttt{0}    & Current process --- writes one \texttt{sleepinfo} entry into \texttt{buf} \\
+\texttt{> 0}  & Process with \texttt{pid == who} --- writes one entry, or returns \texttt{-1} if not found \\
+\texttt{-1}   & All processes --- writes \texttt{NPROC} entries into \texttt{buf} (unused slots have \texttt{pid = 0}) \\
+\bottomrule
+\end{tabularx}
+\caption{Values of the \texttt{who} argument.}
+\end{table}
+
+The call returns \texttt{0} on success and \texttt{-1} on error (invalid buffer address, or \texttt{who > 0} with no matching live process).
+
+\section{Test Program: \texttt{sleepinfo}}
+
+The test program \texttt{user/sleepinfo.c} exercises all modes of the system call:
+
+\begin{cbox}{Test program usage}
+/* current process */
+struct sleepinfo si;
+getsleepinfo(0, &si);
+
+/* after pause(5) */
+pause(5);
+getsleepinfo(0, &si);
+
+/* by explicit pid */
+getsleepinfo(getpid(), &si);
+
+/* invalid pid -- should return -1 */
+getsleepinfo(99999, &si);
+
+/* all processes */
+struct sleepinfo all[NPROC];
+getsleepinfo(-1, all);
+\end{cbox}
+
+% ══════════════════════════════════════════════════════════════
+\chapter{Test Results}
+
+\section{Test Environment}
+
+Tests are run in QEMU with \texttt{CPUS=1}. The command \texttt{make qemu CPUS=1} is used to boot xv6.
+
+\section{Expected Output}
+
+After booting xv6 and running \texttt{sleepinfo}:
+
+\begin{cboxtext}{Expected output of sleepinfo}
+$ sleepinfo
+self (before sleep): pid=3  sleep_ticks=2   sleep_count=1
+self (after  sleep): pid=3  sleep_ticks=7   sleep_count=2
+self (by pid)       : pid=3  sleep_ticks=7   sleep_count=2
+getsleepinfo(99999): correctly returned -1
+
+all processes:
+  pid=1  sleep_ticks=...  sleep_count=...
+  pid=2  sleep_ticks=...  sleep_count=...
+  pid=3  sleep_ticks=...  sleep_count=...
+\end{cboxtext}
+
+\section{Actual Test Output}
+
+The following output was captured from running \texttt{sleepinfo} inside xv6 on QEMU with \texttt{CPUS=1}:
+
+\begin{cboxtext}{Actual output of sleepinfo (QEMU, CPUS=1)}
+$ sleepinfo
+self (before sleep): pid=3  sleep_ticks=1  sleep_count=5
+self (after  sleep): pid=3  sleep_ticks=6  sleep_count=10
+self (by pid)       : pid=3  sleep_ticks=6  sleep_count=10
+getsleepinfo(99999): correctly returned -1
+
+all processes:
+  pid=1  sleep_ticks=0  sleep_count=23
+  pid=2  sleep_ticks=45  sleep_count=11
+  pid=3  sleep_ticks=6  sleep_count=10
+\end{cboxtext}
+
+\begin{placeholder}{Screenshot of xv6 running sleepinfo}
+    Optionally include a screenshot of the xv6 QEMU console. Use:
+    \begin{verbatim}
+    \includegraphics[width=\textwidth]{screenshot.png}
+    \end{verbatim}
+\end{placeholder}
+
+\section{Result Analysis}
+
+\begin{exbox}{Analysis of Test Results}
+    \begin{itemize}[noitemsep]
+        \item \texttt{sleep\_ticks}: increased from 1 to 6 --- the \texttt{pause(5)} call caused the process to sleep for 5 additional ticks, exactly as expected.
+        \item \texttt{sleep\_count}: increased from 5 to 10 --- the shell performs several internal \texttt{sleep()} calls (pipe/console I/O) while parsing the command, hence the base count is greater than 1; \texttt{pause(5)} adds additional sleep calls.
+        \item Querying by explicit PID (\texttt{getpid()}) returns the same values as querying the current process (\texttt{who == 0}).
+        \item Querying a non-existent PID (\texttt{99999}) correctly returns \texttt{-1}.
+        \item The all-processes query (\texttt{who == -1}) lists three live processes:
+        \begin{itemize}[noitemsep]
+            \item \texttt{pid=1} (\texttt{init}): 0 sleep ticks, 23 sleep count --- init mostly waits on \texttt{wait()}.
+            \item \texttt{pid=2} (\texttt{sh}): 45 sleep ticks, 11 sleep count --- the shell sleeps while waiting for console input.
+            \item \texttt{pid=3} (\texttt{sleepinfo}): 6 sleep ticks, 10 sleep count --- matches the per-process query.
+        \end{itemize}
+    \end{itemize}
+\end{exbox}
+
+% ══════════════════════════════════════════════════════════════
+\chapter{Limitations}
+
+\begin{notebox}
+\textbf{Reading \texttt{ticks} without a lock.}\quad
+The \texttt{ticks} variable is read without holding \texttt{tickslock}. If \texttt{tickslock} were acquired inside \texttt{sleep()} while \texttt{p->lock} is already held, every function that holds \texttt{tickslock} and then calls \texttt{sleep()} (e.g., \texttt{sys\_pause}) would need to be audited for lock ordering. The unsynchronized read is the most practical approach.
+\end{notebox}
+
+\begin{notebox}
+\textbf{Measurement error on multi-CPU configurations.}\quad
+With \texttt{CPUS > 1}, the \texttt{ticks} variable is only incremented by CPU~0 (\texttt{clockintr} in \texttt{kernel/trap.c}). Other CPUs read the same value, but it may be slightly stale. For xv6 with \texttt{CPUS=3}, this error is typically less than one tick.
+\end{notebox}
+
+\begin{notebox}
+\textbf{Kernel \texttt{sleep()} vs.\ \texttt{sleeplock}.}\quad
+These statistics only track the kernel \texttt{sleep()} function, which sets the process state to \texttt{SLEEPING}. However, \texttt{sleeplock} also uses the same mechanism internally, so \texttt{sleeplock}-induced sleeps are counted in \texttt{sleep\_count} as well.
+\end{notebox}
+
+\end{document}
