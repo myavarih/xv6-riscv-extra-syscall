@@ -1,0 +1,14 @@
+$ grep hello README
+$ cat README
+xv6 is a re-implementation of Dennis Ritchie's and Ken Thompson's Unix
+Version 6 (v6). ...
+$ sleepinfo
+self (before sleep): pid=5  sleep_ticks=5  sleep_count=2380
+self (after  sleep): pid=5  sleep_ticks=10  sleep_count=2385
+self (by pid)       : pid=5  sleep_ticks=10  sleep_count=2385
+getsleepinfo(99999): correctly returned -1
+
+all processes:
+  pid=1  sleep_ticks=0  sleep_count=23
+  pid=2  sleep_ticks=94  sleep_count=17
+  pid=5  sleep_ticks=10  sleep_count=2385

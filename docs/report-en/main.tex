@@ -118,12 +118,12 @@
 % ══════════════════════════════════════════════════════════════
 \chapter{Introduction}
 
-xv6 is a simple teaching operating system developed at MIT, targeting the RISC-V architecture. The kernel provides no mechanism to query how much time a process has spent sleeping or how many times it has called \texttt{sleep()}.
+xv6 is a teaching OS made at MIT for RISC-V. by default the kernel doesn't have a way to query how much time a process spent sleeping or how many times it called \texttt{sleep()}
 
-This project adds the \texttt{getsleepinfo} system call to the xv6 kernel. The call returns sleep statistics---total ticks and call count---for a specified process or for every process in the system.
+in this project I added the \texttt{getsleepinfo} system call to the xv6 kernel. this syscall simply returns sleep statistics like total ticks and call count for a specific process or all processes
 
 \begin{dfnbox}{System Call}
-    A \textbf{system call} is the interface through which user-space processes access kernel services. On RISC-V, this mechanism is triggered by the \texttt{ecall} instruction.
+    a system call is how user-space processes ask the kernel for services. in RISC-V this is done using the \texttt{ecall} instruction
 \end{dfnbox}
 
 % ══════════════════════════════════════════════════════════════
@@ -131,7 +131,7 @@ This project adds the \texttt{getsleepinfo} system call to the xv6 kernel. The c
 
 \section{Structure Definition}
 
-The structure \texttt{struct sleepinfo} is defined in \texttt{kernel/proc.h}:
+the \texttt{struct sleepinfo} is defined in \texttt{kernel/proc.h} like this:
 
 \begin{cbox}{struct sleepinfo}
 struct sleepinfo {
@@ -145,15 +145,17 @@ struct sleepinfo {
 
 \subsection{\texttt{pid} --- Process Identifier}
 
-The numeric process identifier. When querying all processes (\texttt{who~==~-1}), entries corresponding to unused process-table slots have a \texttt{pid} of zero.
+this is just the numeric process ID. if you query all processes (\texttt{who~==~-1}), the unused slots in the process table will just show a \texttt{pid} of 0
 
 \subsection{\texttt{sleep\_ticks} --- Total Sleep Ticks}
 
-The cumulative number of timer ticks that the process has spent in the \texttt{SLEEPING} state. This value is measured directly inside the \texttt{sleep()} function in \texttt{kernel/proc.c}: immediately before \texttt{sched()} the current \texttt{ticks} value is recorded, and immediately after \texttt{sched()} returns (i.e., after the process wakes up) the difference is added to this counter.
+this is the total timer ticks a process spent in the \texttt{SLEEPING} state. I measure this directly inside the \texttt{sleep()} function in \texttt{kernel/proc.c}
+
+basically right before calling \texttt{sched()} I record the current \texttt{ticks}, and right after \texttt{sched()} returns (when the process wakes up) I add the difference to this counter
 
 \subsection{\texttt{sleep\_count} --- Sleep Call Count}
 
-The number of times \texttt{sleep()} has been called by this process. Every time the process voluntarily relinquishes the CPU---for example, waiting on disk I/O, a pipe, or a \texttt{pause()} call---this counter is incremented by one.
+this counts how many times \texttt{sleep()} was called by the process. so whenever the process voluntarily yields the CPU (like waiting for disk I/O, a pipe, or calling \texttt{pause()}), this counter goes up by one
 
 % ══════════════════════════════════════════════════════════════
 \chapter{Implementation}
@@ -166,23 +168,23 @@ The number of times \texttt{sleep()} has been called by this process. Every time
 \toprule
 \textbf{File} & \textbf{Change} \\
 \midrule
-\texttt{kernel/proc.h}   & Define \texttt{struct sleepinfo}; add \texttt{sleep\_ticks} and \texttt{sleep\_count} to \texttt{struct proc} \\
-\texttt{kernel/proc.c}   & Instrument \texttt{sleep()} to measure sleep duration and count \\
-\texttt{kernel/syscall.h} & Define \texttt{SYS\_getsleepinfo = 22} \\
-\texttt{kernel/syscall.c} & Register \texttt{sys\_getsleepinfo} in the dispatch table \\
-\texttt{kernel/sysproc.c} & Implement \texttt{sys\_getsleepinfo()} \\
-\texttt{user/user.h}      & Declare \texttt{struct sleepinfo} and \texttt{getsleepinfo()} prototype \\
-\texttt{user/usys.pl}     & Add \texttt{entry("getsleepinfo")} \\
-\texttt{user/sleepinfo.c} & User-space test program \\
-\texttt{Makefile}          & Add \texttt{\$U/\_sleepinfo} to \texttt{UPROGS} \\
+\texttt{kernel/proc.h}   & define \texttt{struct sleepinfo} and add \texttt{sleep\_ticks} and \texttt{sleep\_count} to \texttt{struct proc} \\
+\texttt{kernel/proc.c}   & instrument \texttt{sleep()} to measure sleep duration and count \\
+\texttt{kernel/syscall.h} & define \texttt{SYS\_getsleepinfo = 22} \\
+\texttt{kernel/syscall.c} & register \texttt{sys\_getsleepinfo} in the dispatch table \\
+\texttt{kernel/sysproc.c} & implement \texttt{sys\_getsleepinfo()} \\
+\texttt{user/user.h}      & declare \texttt{struct sleepinfo} and \texttt{getsleepinfo()} prototype \\
+\texttt{user/usys.pl}     & add \texttt{entry("getsleepinfo")} \\
+\texttt{user/sleepinfo.c} & user-space test program \\
+\texttt{Makefile}          & add \texttt{\$U/\_sleepinfo} to \texttt{UPROGS} \\
 \bottomrule
 \end{tabularx}
-\caption{Files modified for the \texttt{getsleepinfo} implementation.}
+\caption{files modified for the \texttt{getsleepinfo} implementation}
 \end{table}
 
 \section{Sleep Instrumentation in \texttt{kernel/proc.c}}
 
-The \texttt{sleep()} function in \texttt{kernel/proc.c} was modified to track sleep statistics:
+I modified the \texttt{sleep()} function in \texttt{kernel/proc.c} to keep track of the statistics:
 
 \begin{cbox}{Sleep instrumentation in sleep()}
 // Go to sleep.
@@ -196,12 +198,12 @@ p->sleep_ticks += ticks - sleep_start;
 \end{cbox}
 
 \begin{notebox}
-The \texttt{ticks} variable is read without holding \texttt{tickslock}. This is the same best-effort approach that xv6 uses for other per-process statistics. On RISC-V, 32-bit reads are atomic, so the concurrent read of \texttt{ticks} introduces negligible error in practice.
+I'm reading the \texttt{ticks} variable without holding \texttt{tickslock}. this is the same best-effort approach xv6 uses for other per-process stats. since 32-bit reads on RISC-V are atomic, reading \texttt{ticks} concurrently won't cause any noticeable error
 \end{notebox}
 
 \section{Kernel Implementation: \texttt{sys\_getsleepinfo}}
 
-The function \texttt{sys\_getsleepinfo()} is implemented in \texttt{kernel/sysproc.c}. The first argument (\texttt{who}) selects the mode of operation:
+the actual \texttt{sys\_getsleepinfo()} function is inside \texttt{kernel/sysproc.c}. the first argument \texttt{who} decides how it operates:
 
 \begin{cbox}{sys\_getsleepinfo implementation}
 uint64
@@ -261,14 +263,14 @@ sys_getsleepinfo(void)
 
 \section{New Fields in \texttt{struct proc}}
 
-Two new fields were added to \texttt{struct proc} in \texttt{kernel/proc.h}:
+I added two new fields to \texttt{struct proc} in \texttt{kernel/proc.h}:
 
 \begin{cbox}{New fields in struct proc}
 uint64 sleep_ticks; // total ticks spent in SLEEPING state
 uint64 sleep_count; // number of times sleep() was called
 \end{cbox}
 
-These fields are placed in the private section of \texttt{struct proc} (where \texttt{p->lock} is not required for access), because they are only written by the process itself from within \texttt{sleep()}, which already holds \texttt{p->lock}.
+I put these fields in the private section of \texttt{struct proc} (where you don't need \texttt{p->lock} to access them). this is because they are only modified by the process itself inside \texttt{sleep()}, and \texttt{sleep()} already holds \texttt{p->lock} anyway
 
 % ══════════════════════════════════════════════════════════════
 \chapter{User-Space Interface}
@@ -285,19 +287,19 @@ int getsleepinfo(int who, struct sleepinfo *buf);
 \toprule
 \textbf{Value of \texttt{who}} & \textbf{Meaning} \\
 \midrule
-\texttt{0}    & Current process --- writes one \texttt{sleepinfo} entry into \texttt{buf} \\
-\texttt{> 0}  & Process with \texttt{pid == who} --- writes one entry, or returns \texttt{-1} if not found \\
-\texttt{-1}   & All processes --- writes \texttt{NPROC} entries into \texttt{buf} (unused slots have \texttt{pid = 0}) \\
+\texttt{0}    & current process - writes one \texttt{sleepinfo} entry to \texttt{buf} \\
+\texttt{> 0}  & specific process with \texttt{pid == who} - writes one entry, returns \texttt{-1} if not found \\
+\texttt{-1}   & all processes - writes \texttt{NPROC} entries to \texttt{buf} (unused slots get \texttt{pid = 0}) \\
 \bottomrule
 \end{tabularx}
-\caption{Values of the \texttt{who} argument.}
+\caption{values of the \texttt{who} argument}
 \end{table}
 
-The call returns \texttt{0} on success and \texttt{-1} on error (invalid buffer address, or \texttt{who > 0} with no matching live process).
+the syscall returns \texttt{0} on success and \texttt{-1} on error (like if the buffer address is invalid or if \texttt{who > 0} and there's no alive process with that pid)
 
 \section{Test Program: \texttt{sleepinfo}}
 
-The test program \texttt{user/sleepinfo.c} exercises all modes of the system call:
+I wrote a test program in \texttt{user/sleepinfo.c} to test all modes of the syscall:
 
 \begin{cbox}{Test program usage}
 /* current process */
@@ -324,12 +326,14 @@ getsleepinfo(-1, all);
 
 \section{Test Environment}
 
-All tests were run in QEMU. Unless stated otherwise, \texttt{CPUS=1} is used. The command \texttt{make qemu CPUS=1} boots xv6.
+I ran all tests in QEMU. unless I specify otherwise I'm using \texttt{CPUS=1}
+
+you can boot it with \texttt{make qemu CPUS=1}
 
 % ── Test 1: Basic (CPUS=1, fresh boot) ───────────────────────
 \section{Test 1: Basic Run (CPUS=1)}
 
-Immediately after boot, running \texttt{sleepinfo} as the first command:
+right after booting, running \texttt{sleepinfo} as the first thing:
 
 \begin{cboxtext}{Test 1 --- fresh boot, CPUS=1}
 $ sleepinfo
@@ -346,18 +350,18 @@ all processes:
 
 \begin{exbox}{Test 1 Analysis}
     \begin{itemize}[noitemsep]
-        \item \texttt{sleep\_ticks} increased from 1 to 6 --- \texttt{pause(5)} added exactly 5 ticks.
-        \item \texttt{sleep\_count} increased from 5 to 10 --- console I/O causes multiple \texttt{sleep()} calls during command parsing; \texttt{pause(5)} adds more.
-        \item Querying by explicit PID returns identical values to \texttt{who == 0}.
-        \item Invalid PID (\texttt{99999}) correctly returns \texttt{-1}.
-        \item All-processes query shows \texttt{init} (pid=1), \texttt{sh} (pid=2), and \texttt{sleepinfo} (pid=3).
+        \item \texttt{sleep\_ticks} went from 1 to 6 - \texttt{pause(5)} added exactly 5 ticks
+        \item \texttt{sleep\_count} jumped from 5 to 10 - the console I/O makes multiple \texttt{sleep()} calls while parsing the command, and \texttt{pause(5)} adds more
+        \item querying by exact PID gives the exact same values as \texttt{who == 0}
+        \item giving it an invalid PID (\texttt{99999}) properly returns \texttt{-1}
+        \item querying all processes shows \texttt{init} (pid=1), \texttt{sh} (pid=2), and \texttt{sleepinfo} (pid=3)
     \end{itemize}
 \end{exbox}
 
 % ── Test 2: Multi-CPU (CPUS=3) ────────────────────────────────
 \section{Test 2: Multi-CPU (CPUS=3)}
 
-Same test with \texttt{CPUS=3} to verify correctness on a multiprocessor configuration:
+I ran the same test with \texttt{CPUS=3} to make sure it works correctly on a multi-processor setup:
 
 \begin{cboxtext}{Test 2 --- CPUS=3}
 $ sleepinfo
@@ -374,16 +378,16 @@ all processes:
 
 \begin{exbox}{Test 2 Analysis}
     \begin{itemize}[noitemsep]
-        \item \texttt{sleep\_ticks} delta is still 5, confirming \texttt{pause(5)} accuracy across CPUs.
-        \item Initial \texttt{sleep\_ticks} is 0 (vs.\ 1 with CPUS=1) --- slight timing variation from multi-hart scheduling.
-        \item \texttt{sh} accumulated 44 sleep ticks (vs.\ 45 with CPUS=1) --- consistent within the expected $\pm 1$ tick error described in the Limitations chapter.
+        \item the \texttt{sleep\_ticks} delta is still 5 so \texttt{pause(5)} is accurate across different CPUs
+        \item the initial \texttt{sleep\_ticks} is 0 instead of 1 - this is just a slight timing difference because of multi-hart scheduling
+        \item \texttt{sh} accumulated 44 sleep ticks (instead of 45) - this is fine and well within the $\pm 1$ tick error I explain in the Limitations chapter
     \end{itemize}
 \end{exbox}
 
 % ── Test 3: Consecutive runs ─────────────────────────────────
 \section{Test 3: Consecutive Runs}
 
-Running \texttt{sleepinfo} twice in a row to observe that each invocation is an independent process with its own counters:
+running \texttt{sleepinfo} twice in a row to see how each run is an independent process with its own counters:
 
 \begin{cboxtext}{Test 3 --- two consecutive runs}
 $ sleepinfo
@@ -410,17 +414,17 @@ all processes:
 
 \begin{exbox}{Test 3 Analysis}
     \begin{itemize}[noitemsep]
-        \item Second run gets pid=4 (pid=3 was freed after the first run exited).
-        \item xv6 zeroes \texttt{struct proc} in \texttt{freeproc()}, but reuses proc-table slots. The second run's initial \texttt{sleep\_ticks=5} and \texttt{sleep\_count=10} show the slot was reused with residual counters from the first run (xv6's \texttt{allocproc} does not zero the entire struct---only selected fields).
-        \item \texttt{sh} (pid=2) \texttt{sleep\_ticks} jumped from 45 to 194 --- the shell slept while idle between the two commands.
-        \item \texttt{sh} \texttt{sleep\_count} increased from 11 to 14 --- three additional console-read sleeps.
+        \item the second run got pid=4 because pid=3 was freed when the first run finished
+        \item xv6 zeroes \texttt{struct proc} in \texttt{freeproc()} but it actually reuses slots in the proc-table. the second run starting with \texttt{sleep\_ticks=5} and \texttt{sleep\_count=10} shows the slot was reused with leftover counters from the first run (since \texttt{allocproc} doesn't zero out the entire struct, just specific fields)
+        \item \texttt{sh} (pid=2) \texttt{sleep\_ticks} jumped from 45 to 194 - it just slept while sitting idle between my two commands
+        \item \texttt{sh} \texttt{sleep\_count} went from 11 to 14 - it had three more console-read sleeps
     \end{itemize}
 \end{exbox}
 
 % ── Test 4: After I/O-heavy commands ─────────────────────────
 \section{Test 4: After I/O-Heavy Commands}
 
-Running \texttt{grep} and \texttt{cat README} before \texttt{sleepinfo}, to observe the effect of disk I/O on sleep counters:
+I ran \texttt{grep} and \texttt{cat README} before running \texttt{sleepinfo} to see how disk I/O affects the sleep counters:
 
 \begin{cboxtext}{Test 4 --- after grep + cat README}
 $ grep hello README
@@ -441,10 +445,10 @@ all processes:
 
 \begin{exbox}{Test 4 Analysis}
     \begin{itemize}[noitemsep]
-        \item \texttt{sleep\_count} is 2380 before the explicit sleep --- dramatically higher than Test~1's value of 5. The \texttt{grep} and \texttt{cat} commands caused thousands of disk-read \texttt{sleep()} calls (virtio block I/O), and the proc-table slot was reused with accumulated counters.
-        \item \texttt{sleep\_ticks} delta remains exactly 5, confirming that the tick measurement is independent of the call count.
-        \item pid=5 (not 3) because pids 3 and 4 were consumed by the \texttt{grep} and \texttt{cat} processes.
-        \item \texttt{sh} accumulated 94 sleep ticks (vs.\ 45 in Test~1) --- more idle time between multiple commands.
+        \item \texttt{sleep\_count} is 2380 before the explicit sleep which is way higher than Test 1. running \texttt{grep} and \texttt{cat} caused thousands of disk-read \texttt{sleep()} calls for virtio block I/O, and the proc-table slot was reused with those accumulated counters
+        \item the \texttt{sleep\_ticks} delta is still exactly 5. this shows the tick measurement works completely independent of how many times \texttt{sleep()} was called
+        \item it got pid=5 instead of 3 because \texttt{grep} and \texttt{cat} took pids 3 and 4
+        \item \texttt{sh} got 94 sleep ticks instead of 45 - just more idle time between typing multiple commands
     \end{itemize}
 \end{exbox}
 
@@ -457,31 +461,31 @@ all processes:
 \toprule
 \textbf{Test} & \textbf{Config} & \textbf{$\Delta$ticks} & \textbf{Pass} & \textbf{Key observation} \\
 \midrule
-1. Basic         & CPUS=1 & 5 & Yes & Baseline; all query modes correct \\
-2. Multi-CPU     & CPUS=3 & 5 & Yes & $\pm 1$ tick variance, consistent \\
-3. Consecutive   & CPUS=1 & 5 & Yes & Proc-slot reuse; shell stats accumulate \\
-4. After I/O     & CPUS=1 & 5 & Yes & Disk I/O inflates \texttt{sleep\_count} \\
+1. basic         & CPUS=1 & 5 & yes & baseline, all query modes work fine \\
+2. multi-CPU     & CPUS=3 & 5 & yes & $\pm 1$ tick variance, but still consistent \\
+3. consecutive   & CPUS=1 & 5 & yes & proc-slot reuse, shell stats keep adding up \\
+4. after I/O     & CPUS=1 & 5 & yes & disk I/O heavily inflates \texttt{sleep\_count} \\
 \bottomrule
 \end{tabularx}
-\caption{Summary of all test runs. $\Delta$ticks is the \texttt{sleep\_ticks} increase from \texttt{pause(5)}.}
+\caption{summary of all test runs. $\Delta$ticks is how much \texttt{sleep\_ticks} goes up after \texttt{pause(5)}}
 \end{table}
 
 % ══════════════════════════════════════════════════════════════
 \chapter{Limitations}
 
 \begin{notebox}
-\textbf{Reading \texttt{ticks} without a lock.}\quad
-The \texttt{ticks} variable is read without holding \texttt{tickslock}. If \texttt{tickslock} were acquired inside \texttt{sleep()} while \texttt{p->lock} is already held, every function that holds \texttt{tickslock} and then calls \texttt{sleep()} (e.g., \texttt{sys\_pause}) would need to be audited for lock ordering. The unsynchronized read is the most practical approach.
+\textbf{reading \texttt{ticks} without a lock}\quad
+I read the \texttt{ticks} variable without holding \texttt{tickslock}. if I acquired \texttt{tickslock} inside \texttt{sleep()} while \texttt{p->lock} was already held, I'd have to audit every single function that holds \texttt{tickslock} and then calls \texttt{sleep()} (like \texttt{sys\_pause}) for lock ordering issues. doing an unsynchronized read is just way more practical here
 \end{notebox}
 
 \begin{notebox}
-\textbf{Measurement error on multi-CPU configurations.}\quad
-With \texttt{CPUS > 1}, the \texttt{ticks} variable is only incremented by CPU~0 (\texttt{clockintr} in \texttt{kernel/trap.c}). Other CPUs read the same value, but it may be slightly stale. For xv6 with \texttt{CPUS=3}, this error is typically less than one tick.
+\textbf{measurement error on multi-CPU configs}\quad
+when \texttt{CPUS > 1}, only CPU 0 increments the \texttt{ticks} variable (in \texttt{clockintr} inside \texttt{kernel/trap.c}). the other CPUs read the same value but it might be slightly stale. with xv6 on \texttt{CPUS=3} this error is usually less than one tick though so it's not a big deal
 \end{notebox}
 
 \begin{notebox}
-\textbf{Kernel \texttt{sleep()} vs.\ \texttt{sleeplock}.}\quad
-These statistics only track the kernel \texttt{sleep()} function, which sets the process state to \texttt{SLEEPING}. However, \texttt{sleeplock} also uses the same mechanism internally, so \texttt{sleeplock}-induced sleeps are counted in \texttt{sleep\_count} as well.
+\textbf{kernel \texttt{sleep()} vs \texttt{sleeplock}}\quad
+these stats only track the kernel \texttt{sleep()} function which actually sets the process state to \texttt{SLEEPING}. but \texttt{sleeplock} uses the same mechanism under the hood so \texttt{sleeplock} sleeps end up getting counted in \texttt{sleep\_count} too
 \end{notebox}
 
 \end{document}
